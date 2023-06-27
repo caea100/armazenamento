@@ -1,12 +1,9 @@
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:image_picker/image_picker.dart';
+import 'dart:html' as html;
+import 'dart:typed_data';
 
 import '../models/item.dart';
-
 
 class FormularioItem extends StatefulWidget {
   final void Function(Item) adicionarItem;
@@ -25,7 +22,7 @@ class FormularioItem extends StatefulWidget {
 class _FormularioItemState extends State<FormularioItem> {
   late TextEditingController _controllerCampoNomeItem;
   late TextEditingController _controllerCampoQuantidade;
-  late File? _image;
+  Uint8List? _imageBytes;
 
   @override
   void initState() {
@@ -36,32 +33,32 @@ class _FormularioItemState extends State<FormularioItem> {
     _controllerCampoQuantidade = TextEditingController(
       text: widget.item != null ? widget.item!.quantidade.toString() : '',
     );
-    _image = widget.item?.imagem;
+    _imageBytes = widget.item?.imagemBytes;
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    PermissionStatus status = await Permission.storage.request();
-    if (status.isGranted) {
-      try {
-        final image = await ImagePicker().pickImage(source: source);
-        if (image == null) return;
-        File? img = File(image.path);
-        setState(() {
-          _image = img;
-        });
-      } on PlatformException catch (e) {
-        print(e);
-      }
-    } else {
-      if (status.isPermanentlyDenied) {
-        openAppSettings();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('A permissão para acessar a galeria foi negada.'),
-          ),
-        );
-      }
+  Future<void> _pickImage() async {
+    try {
+      final html.InputElement? input = (html.document.createElement('input') as html.InputElement)
+        ..type = 'file'
+        ..accept = 'image/*';
+
+      input?.click();
+
+      input?.onChange.listen((event) async {
+        final files = input?.files;
+        if (files != null && files.isNotEmpty) {
+          final reader = html.FileReader();
+          reader.readAsDataUrl(files[0]);
+          reader.onLoadEnd.listen((event) {
+            final base64Data = reader.result.toString().split(',').last;
+            setState(() {
+              _imageBytes = base64Decode(base64Data);
+            });
+          });
+        }
+      });
+    } catch (e) {
+      print(e);
     }
   }
 
@@ -77,12 +74,14 @@ class _FormularioItemState extends State<FormularioItem> {
           child: Column(
             children: [
               ElevatedButton(
-                onPressed: () {
-                  _pickImage(ImageSource.gallery);
-                },
+                onPressed: _pickImage,
                 child: const Text('Selecionar Imagem'),
               ),
-              if (_image != null) Image.file(_image!),
+              if (_imageBytes != null)
+                Image.memory(
+                  _imageBytes!,
+                  fit: BoxFit.cover,
+                ),
               Padding(
                 padding: const EdgeInsets.all(10.0),
                 child: TextField(
@@ -117,7 +116,7 @@ class _FormularioItemState extends State<FormularioItem> {
                       final novoItem = Item(
                         nomeDoItem: nomeDoItem,
                         quantidade: quantidade,
-                        imagem: _image,
+                        imagemBytes: _imageBytes,
                       );
                       widget.adicionarItem(novoItem);
                       Navigator.of(context).pop();
